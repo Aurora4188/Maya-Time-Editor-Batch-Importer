@@ -1,6 +1,7 @@
 """Small Maya Time Editor adapter with version-sensitive calls isolated here."""
 
 import math
+import os
 
 import maya.cmds as cmds
 
@@ -126,12 +127,22 @@ def existing_clip_ranges(track_token, exclude_ids=None):
 
 def create_fbx_clip(fbx_path, track_token, clip_name, start_time):
     """Import via Time Editor connect mode; never falls back to scene import."""
+    # Maya 2022's Time Editor hands this value through MEL internally. Native
+    # Windows backslashes can be interpreted as escapes and truncate a path to
+    # its drive prefix (for example ``D:``), even though cmds.file accepts it.
+    fbx_path = os.path.abspath(fbx_path).replace("\\", "/")
+    if not os.path.isfile(fbx_path):
+        raise TimeEditorError("FBX file does not exist: {}".format(fbx_path))
+    if not isinstance(track_token, str) or ":" not in track_token:
+        raise TimeEditorError(
+            "Invalid internal Track token: {!r}. Expected tracksNode:index."
+            .format(track_token)
+        )
     before = set(track_clip_ids(track_token))
     try:
         clip_node = cmds.timeEditorClip(
             clip_name,
             importFbx=fbx_path,
-            importOption="connect",
             track=track_token,
             startTime=float(start_time),
         )

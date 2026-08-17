@@ -9,10 +9,13 @@ This version does not create or edit HumanIK definitions/connections, bake
 retargeting, export animation, process root motion, or delete existing Time
 Editor content. It never falls back to `cmds.file(..., i=True)`.
 
-FBX import uses `maya.cmds.timeEditorClip` with `importFbx` and
-`importOption="connect"`. Connect mode is deliberate: it targets matching nodes
-already in the scene and does not request generation of a new skeleton. A failed
-name match is reported as an import failure.
+FBX import uses `maya.cmds.timeEditorClip` with `importFbx`. Maya's documented
+default import mode is `connect`: it targets matching nodes already in the scene
+and does not request generation of a new skeleton. The adapter intentionally
+does not pass the version-sensitive `importOption` flag during clip creation.
+Windows paths are converted to forward slashes before Maya 2022 hands them to
+its internal MEL procedures. A failed name match is reported as an import
+failure.
 
 ## Install and launch
 
