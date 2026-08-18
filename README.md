@@ -1,102 +1,98 @@
-# Time Editor Batch Importer — MVP1
+# Maya Time Editor FBX Importer
 
-Batch-import FBX animation files as Maya Time Editor clips, keep them on one
-chosen track, and arrange them in queue order using each clip's queried range.
+适用于 Maya 2022 的简易 Time Editor FBX 批量导入工具。
 
-## Scope and safety
+工具按选择顺序逐个导入 FBX，将 Clip 放入当前激活 Composition 的第一条 Track，并在相邻 Clip 之间保留指定的 Gap Frames。UI 仅负责文件选择、参数输入和结果报告，核心导入逻辑保留在 `time_editor_test.py` 中。
 
-This version does not create or edit HumanIK definitions/connections, bake
-retargeting, export animation, process root motion, or delete existing Time
-Editor content. It never falls back to `cmds.file(..., i=True)`.
+## 当前功能
 
-FBX import uses `maya.cmds.timeEditorClip` with `importFbx`. Maya's documented
-default import mode is `connect`: it targets matching nodes already in the scene
-and does not request generation of a new skeleton. The adapter intentionally
-does not pass the version-sensitive `importOption` flag during clip creation.
-Windows paths are converted to forward slashes before Maya 2022 hands them to
-its internal MEL procedures. A failed name match is reported as an import
-failure.
+- 一次选择多个 FBX；
+- 设置非负 Gap Frames，默认值为 5；
+- 固定使用 `track_index=0`、`start_time=0`；
+- 显示成功 Clip 的名称、Start 和 End；
+- 显示失败文件、错误信息及未处理数量；
+- 防止重复打开工具窗口。
 
-## Install and launch
+## Maya 中运行
 
-Place the `Projects` folder on `MAYA_SCRIPT_PATH`, or add its absolute path to
-`sys.path`, then run in Maya's Python Script Editor:
+导入前，请在 Time Editor 中激活一个 Composition，并确保其中至少有一条 Track。
+
+在 Maya Script Editor 的 **Python** 页签执行：
+
+```python
+import sys
+import importlib
+
+tools_path = r"D:\tools"
+if tools_path not in sys.path:
+    sys.path.insert(0, tools_path)
+
+from maya_time_editor_batch import time_editor_import_ui
+importlib.reload(time_editor_import_ui)
+
+window = time_editor_import_ui.show()
+```
+
+`sys.path` 的修改只在当前 Maya 会话中有效。
+
+## ZIP 包内容
+
+ZIP 包应包含以下目录：
+
+```text
+maya_time_editor_batch/
+├── __init__.py
+├── time_editor_test.py
+├── time_editor_import_ui.py
+└── README.md
+```
+
+ZIP 包不包含 `__pycache__`、`.pyc` 文件、测试 FBX 或个人工程文件。
+
+## ZIP 使用方式
+
+1. 将 ZIP 解压到一个固定位置，例如：
+
+   ```text
+   D:\maya_tools\maya_time_editor_batch
+   ```
+
+2. 打开 Maya 2022，并在 Time Editor 中激活一个 Composition，确保其中至少有一条 Track。
+
+3. 打开 Maya Script Editor，切换到 **Python** 页签。
+
+4. 将 `package_parent` 设置为 `maya_time_editor_batch` 文件夹的上一级目录，然后运行：
 
 ```python
 import sys
 
-projects_path = r"D:/path/to/CharacterTA_Lab/Projects"
-if projects_path not in sys.path:
-    sys.path.insert(0, projects_path)
+package_parent = r"D:\maya_tools"
+if package_parent not in sys.path:
+    sys.path.insert(0, package_parent)
 
-import TimeEditorBatchImporter
-TimeEditorBatchImporter.show()
+from maya_time_editor_batch import time_editor_import_ui
+time_editor_import_ui.show()
 ```
 
-Repeated `show()` calls close the existing window before opening a replacement.
+这里应加入的是包的上一级目录，例如包位于 `D:\maya_tools\maya_time_editor_batch`，则填写 `D:\maya_tools`。
 
-## Workflow
+该设置只在当前 Maya 会话中有效。重新启动 Maya 后，需要再次运行上述代码。
 
-1. Prepare the Source and Target HumanIK setup manually.
-2. Add FBX files or a folder, enable/reorder items, and set Composition, Track,
-   Start Frame, and Gap Frames.
-3. Enable **Create missing Composition / Track** only when creation is wanted.
-4. Click **Validate**. Existing clips produce a warning and are never moved.
-5. Click **Import and Arrange**, review any warning, then inspect the log.
+## 使用检查项
 
-For a clip with queried absolute range `0-30`, the tool records 31 occupied
-frames. With Gap Frames `5`, the next clip starts at `36`, leaving `31-35`
-empty. Arrangement uses queried absolute `end`, not an assumed FBX length.
+首次使用前建议保存场景，并确认：
 
-## Required Maya smoke test
+1. Maya 版本为 2022，FBX 可正常读取；
+2. Time Editor 中已有激活的 Composition 和至少一条 Track；
+3. 多个 FBX 按选择顺序生成 Clip；
+4. Clip 间隔符合 Gap Frames；
+5. Report 中的成功数、失败数、Start 和 End 正确；
+6. 导入失败后窗口和已选文件仍然保留，可直接重试。
 
-The current repository has no Maya executable, FBX fixtures, or configured
-Source skeleton, so the Time Editor calls have not been executed in a real Maya
-session. Before a production batch, use one representative FBX:
+## 已知限制
 
-```python
-from TimeEditorBatchImporter import maya_smoke_test
-
-result = maya_smoke_test.run(r"D:/Animations/AS_Idle.fbx")
-print(result)
-```
-
-Verify all of the following manually:
-
-- exactly one Animation Source and one clip were created;
-- the existing Source skeleton is driven and no second skeleton appeared;
-- `start`, `end`, `maya_duration`, and `inclusive_frame_count` describe the
-  expected animation without an off-by-one error;
-- `next_start_gap_5` leaves exactly five empty frames;
-- the current HumanIK Source/Target connection is unchanged.
-
-The log records both Maya's raw `duration` and the inclusive occupied frame
-count. Maya documentation calls duration a relative duration, but this tool does
-not assume whether a particular Maya/FBX combination reports a time difference
-or an inclusive frame count.
-
-## Version notes and known limitations
-
-- UI import prefers PySide2/shiboken2 and safely falls back to
-  PySide6/shiboken6.
-- Time Editor command behavior must be checked in the target Maya release.
-- Namespace/name mismatches are not guessed or automatically remapped in MVP1.
-- A target track containing clips requires confirmation. Each new queried range
-  is checked against existing clip ranges; on conflict only the newly created
-  clip is removed and that file is reported failed.
-- FBX/Time Editor operations may not be completely undoable in every Maya/FBX
-  plug-in version. The batch is grouped in one Undo Chunk, but do not treat Undo
-  as the only recovery plan; save the scene first.
-- Folder scanning is intentionally non-recursive.
-- Composition/Track creation is explicit; same-named existing content is never
-  deleted or overwritten.
-
-## Development checks outside Maya
-
-The timing math can be checked without Maya:
-
-```bash
-python -m unittest discover Projects/TimeEditorBatchImporter/tests
-```
-
-Full import validation still requires Maya and representative FBX files.
+- 当前只导入到第一条 Track；
+- Start Time 固定为 0；
+- 每个 FBX 预期只生成一个 Clip；
+- 核心导入器遇到第一个失败后会停止后续导入；
+- 工具不会创建 Composition、Track，也不会修改 HumanIK 设置。
