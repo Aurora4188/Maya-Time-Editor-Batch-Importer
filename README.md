@@ -91,8 +91,5 @@ time_editor_import_ui.show()
 
 ## 已知限制
 
-- 当前只导入到第一条 Track；
-- Start Time 固定为 0；
-- 每个 FBX 预期只生成一个 Clip；
 - 核心导入器遇到第一个失败后会停止后续导入；
 - 工具不会创建 Composition、Track，也不会修改 HumanIK 设置。
