@@ -1,6 +1,7 @@
 """Compact PySide2 UI for the existing Time Editor FBX sequence importer."""
 
 import os
+import importlib
 
 from PySide2 import QtCore, QtWidgets
 from shiboken2 import wrapInstance
@@ -25,6 +26,7 @@ def _load_core_module():
     """Import the existing core module without relying on an absolute path."""
     try:
         from . import time_editor_test
+        importlib.reload(time_editor_test)
     except (ImportError, ValueError):
         import time_editor_test
     return time_editor_test
@@ -69,6 +71,7 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
         self.gap_spinbox = QtWidgets.QSpinBox()
         self.gap_spinbox.setRange(0, 1000000)
         self.gap_spinbox.setValue(5)
+        self.gap_spinbox.setMinimumHeight(24)
 
         self.custom_start_radio = QtWidgets.QRadioButton(
             "Custom Start Frame"
@@ -84,6 +87,32 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
         self.start_spinbox = QtWidgets.QSpinBox()
         self.start_spinbox.setRange(-1000000, 1000000)
         self.start_spinbox.setValue(0)
+        self.start_spinbox.setMinimumHeight(24)
+
+        self.override_speed_checkbox = QtWidgets.QCheckBox(
+            "Override Clip Speed"
+        )
+        self.override_speed_checkbox.setChecked(False)
+
+        self.speed_spinbox = QtWidgets.QDoubleSpinBox()
+        self.speed_spinbox.setRange(0.1, 10.0)
+        self.speed_spinbox.setDecimals(2)
+        self.speed_spinbox.setSingleStep(0.1)
+        self.speed_spinbox.setValue(1.0)
+        self.speed_spinbox.setSuffix("x")
+        self.speed_spinbox.setEnabled(False)
+        self.speed_spinbox.setMinimumHeight(24)
+
+        self.standard_import_radio = QtWidgets.QRadioButton(
+            "Standard (Generate)"
+        )
+        self.connect_existing_radio = QtWidgets.QRadioButton(
+            "Connect Existing Skeleton (Ignore Missing Joints)"
+        )
+        self.skeleton_mode_group = QtWidgets.QButtonGroup(self)
+        self.skeleton_mode_group.addButton(self.standard_import_radio)
+        self.skeleton_mode_group.addButton(self.connect_existing_radio)
+        self.standard_import_radio.setChecked(True)
 
         self.import_button = QtWidgets.QPushButton("Import to Time Editor")
         self.import_button.setMinimumHeight(36)
@@ -115,16 +144,49 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
         settings_group = QtWidgets.QGroupBox("Import Settings")
         settings_group.setLayout(settings_layout)
 
+        speed_layout = QtWidgets.QGridLayout()
+        speed_layout.addWidget(self.override_speed_checkbox, 0, 0, 1, 2)
+        speed_layout.addWidget(QtWidgets.QLabel("Speed Multiplier:"), 1, 0)
+        speed_layout.addWidget(self.speed_spinbox, 1, 1)
+        speed_layout.setColumnStretch(2, 1)
+        speed_group = QtWidgets.QGroupBox("Playback Speed")
+        speed_group.setLayout(speed_layout)
+
+        skeleton_layout = QtWidgets.QVBoxLayout()
+        skeleton_layout.addWidget(self.standard_import_radio)
+        skeleton_layout.addWidget(self.connect_existing_radio)
+        skeleton_group = QtWidgets.QGroupBox("Skeleton Import Mode")
+        skeleton_group.setLayout(skeleton_layout)
+
         report_layout = QtWidgets.QVBoxLayout()
         report_layout.addWidget(self.report_edit)
         report_group = QtWidgets.QGroupBox("Report")
         report_group.setLayout(report_layout)
 
+        content_widget = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(files_group, 2)
+        content_layout.addWidget(settings_group)
+        content_layout.addWidget(skeleton_group)
+        content_layout.addWidget(speed_group)
+        content_layout.addWidget(self.import_button)
+        content_layout.addWidget(report_group, 3)
+
+        content_widget.setMinimumHeight(
+            content_widget.sizeHint().height()
+        )
+
+        self.scroll_area = QtWidgets.QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarAlwaysOff
+        )
+        self.scroll_area.setWidget(content_widget)
+
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(files_group, 2)
-        layout.addWidget(settings_group)
-        layout.addWidget(self.import_button)
-        layout.addWidget(report_group, 3)
+        layout.addWidget(self.scroll_area)
 
     def create_connections(self):
         self.select_button.clicked.connect(self.select_fbx_files)
@@ -132,6 +194,9 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
         self.import_button.clicked.connect(self.import_to_time_editor)
         self.custom_start_radio.toggled.connect(
             self.start_spinbox.setEnabled
+        )
+        self.override_speed_checkbox.toggled.connect(
+            self.speed_spinbox.setEnabled
         )
 
     def select_fbx_files(self):
@@ -182,6 +247,18 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
             query=True,
             allTracks=True,
         ) or []
+
+        if not tracks:
+            cmds.timeEditorTracks(
+                tracks_node,
+                edit=True,
+                addTrack=-1,
+            )
+            tracks = cmds.timeEditorTracks(
+                tracks_node,
+                query=True,
+                allTracks=True,
+            ) or []
 
         if track_index < 0 or track_index >= len(tracks):
             raise RuntimeError(
@@ -251,6 +328,9 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
                 track_index=0,
                 start_time=start_time,
                 gap_frames=self.gap_spinbox.value(),
+                apply_speed=self.override_speed_checkbox.isChecked(),
+                speed_multiplier=self.speed_spinbox.value(),
+                connect_existing=self.connect_existing_radio.isChecked(),
             )
         except Exception as error:
             self._show_warning(
@@ -288,22 +368,68 @@ class TimeEditorFbxImporterWindow(QtWidgets.QDialog):
             "",
         ]
 
+        if self.override_speed_checkbox.isChecked():
+            lines.extend([
+                "Speed Override: Enabled",
+                "Speed Multiplier: {:.2f}x".format(
+                    self.speed_spinbox.value()
+                ),
+                "",
+            ])
+        else:
+            lines.extend(["Speed Override: Disabled", ""])
+
+        lines.extend([
+            "Skeleton Import Mode: {}".format(
+                "Connect Existing Skeleton"
+                if self.connect_existing_radio.isChecked()
+                else "Standard (Generate)"
+            ),
+            "",
+        ])
+
         for segment in successful:
-            lines.append(
-                "[SUCCESS] {} | {} -> {}".format(
-                    segment.get("node", "<unknown clip>"),
-                    _format_number(segment.get("start", "?")),
-                    _format_number(segment.get("end", "?")),
-                )
-            )
+            file_name = os.path.basename(
+                segment.get("source_file", "")
+            ) or "<unknown file>"
+
+            lines.append("[SUCCESS] {}".format(file_name))
+            if segment.get("speed_applied"):
+                lines.extend([
+                    "Speed: {:.2f}x".format(
+                        segment.get("speed_multiplier", 1.0)
+                    ),
+                    "Original: {} -> {} | Duration: {}".format(
+                        _format_number(segment.get("original_start", "?")),
+                        _format_number(segment.get("original_end", "?")),
+                        _format_number(
+                            segment.get("original_duration", "?")
+                        ),
+                    ),
+                    "Retimed: {} -> {} | Duration: {}".format(
+                        _format_number(segment.get("start", "?")),
+                        _format_number(segment.get("end", "?")),
+                        _format_number(segment.get("duration", "?")),
+                    ),
+                ])
+            else:
+                lines.extend([
+                    "Range: {} -> {}".format(
+                        _format_number(segment.get("start", "?")),
+                        _format_number(segment.get("end", "?")),
+                    ),
+                    "Speed: 1.00x (unchanged)",
+                ])
+            lines.append("")
 
         for segment in failed:
-            lines.append(
-                "[FAILED] {} | {}".format(
-                    segment.get("source_file", "<unknown file>"),
-                    segment.get("error", "Unknown error"),
-                )
+            failure_line = "[FAILED] {} | {}".format(
+                segment.get("source_file", "<unknown file>"),
+                segment.get("error", "Unknown error"),
             )
+            if segment.get("stage"):
+                failure_line += " | Stage: {}".format(segment["stage"])
+            lines.append(failure_line)
 
         unprocessed_count = len(self.fbx_files) - len(segments)
         if unprocessed_count > 0:
